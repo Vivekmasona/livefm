@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bihar FM Studio - 24/7 Zero Latency Radio</title>
+  <style>
+    html, body {
+      margin: 0px;
+      padding: 0px;
+      overflow: hidden;
+      background: #000;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #fff;
+    }
+
+    canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+    }
+
+    #info {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.85);
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: 30px;
+      text-align: center;
+      z-index: 30;
+      font-size: 14px;
+      font-weight: bold;
+      border: 1px solid #ff2a74;
+      box-shadow: 0 4px 20px rgba(255, 42, 116, 0.4);
+    }
+
+    .panel {
+      position: absolute;
+      background: rgba(18, 18, 18, 0.95);
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 16px;
+      z-index: 20;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.8);
+    }
+
+    #admin-panel {
+      top: 80px;
+      left: 20px;
+      width: 300px;
+      display: none;
+    }
+
+    #playlist-panel {
+      top: 80px;
+      right: 20px;
+      width: 280px;
+      max-height: 350px;
+      overflow-y: auto;
+    }
+
+    #controls {
+      position: fixed;
+      bottom: 35px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 30;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+    }
+
+    input[type="text"] {
+      width: calc(100% - 18px);
+      padding: 10px;
+      background: #111;
+      border: 1px solid #444;
+      color: #fff;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      outline: none;
+      font-size: 14px;
+    }
+
+    button {
+      background: #ff2a74;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: bold;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    button:hover { background: #ff4785; }
+
+    #live-btn {
+      background: #2ed573;
+      padding: 14px 35px;
+      font-size: 16px;
+      border-radius: 50px;
+      box-shadow: 0 4px 20px rgba(46, 213, 115, 0.5);
+    }
+    #live-btn:hover { background: #26af5f; }
+
+    #admin-toggle {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #333;
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 20px;
+      z-index: 40;
+    }
+
+    .item-card {
+      background: #222;
+      padding: 10px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .item-info {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-right: 10px;
+      flex: 1;
+    }
+    .delete-btn {
+      background: #ff4757;
+      padding: 5px 10px;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<div id="info">📻 Welcome to Bihar FM Studio - Click Listen Live</div>
+
+<button id="admin-toggle" onclick="toggleAdmin()">⚙️ Admin Mode</button>
+
+<div class="panel" id="admin-panel">
+  <h3 style="margin:0 0 10px 0; font-size:15px; color:#ff2a74;">🔒 Admin Studio</h3>
+  <input type="text" id="query-input" placeholder="Search song to add globally..." />
+  <button id="search-btn" style="width:100%;">Search API</button>
+  <div id="search-results" style="margin-top:12px; max-height:160px; overflow-y:auto;"></div>
+</div>
+
+<div class="panel" id="playlist-panel">
+  <h3 style="margin:0 0 10px 0; font-size:15px; color:#2ed573;">🎶 Global Station Queue</h3>
+  <div id="playlist-container" style="font-size:13px; color:#aaa;">Loading playlist...</div>
+</div>
+
+<div id="controls">
+  <button id="live-btn" onclick="startListening()">🔴 LISTEN LIVE 24/7</button>
+</div>
+
+<audio id="audio-element" crossorigin="anonymous"></audio>
+
+<script src="https://codepen.io/Tibixx/pen/BbBxRG.js"></script>
+
+<script>
+const BACKEND_URL = "https://livefm.vivekmasona.deno.net";
+
+var canvas = document.getElementById("canvas");
+var ctx = canvas.getContext("2d");
+w = ctx.canvas.width = window.innerWidth;
+h = ctx.canvas.height = window.innerHeight;
+
+window.onresize = function() {
+  w = ctx.canvas.width = window.innerWidth;
+  h = ctx.canvas.height = window.innerHeight;
+};
+
+var nrt=0, npt=0, dots=[], lines=[];
+var config = { 
+  minRadius: 45,
+  maxRadius: 85,
+  multiplier: 45,   
+  colorSpeed: 20, 
+  hueStart: 220, 
+  centerImage: "https://i.imgur.com/8Q5N8bB.png" 
+};
+
+var bgImage = new Image();
+bgImage.src = config.centerImage;
+
+var AudioContext = window.AudioContext || window.webkitAudioContext;
+var actx, analyser, sourceNode, frequencyData, frequencyDataLen;
+var playing = false;
+var dotEmitter, lineEmitter;
+var audioEl = document.getElementById("audio-element");
+
+// Global State Variables stored locally after 1-time fetch
+let stationPlaylist = [];
+let stationStartTime = 0;
+let syncInterval = null;
+
+function initAudioContext() {
+  if (!actx && AudioContext) {
+    actx = new AudioContext();
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.55;
+    
+    sourceNode = actx.createMediaElementSource(audioEl);
+    sourceNode.connect(analyser);
+    analyser.connect(actx.destination);
+    
+    frequencyDataLen = analyser.frequencyBinCount;
+    frequencyData = new Uint8Array(frequencyDataLen);
+  }
+  if (actx && actx.state === 'suspended') {
+    actx.resume();
+  }
+}
+
+// Fetch station state ONCE on load
+async function fetchStationState() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/playlist`);
+    const data = await res.json();
+    stationPlaylist = data.playlist || [];
+    stationStartTime = data.stationStartTime || Date.now();
+    renderPlaylistUI();
+    return data;
+  } catch(e) {
+    console.error("Failed to load state", e);
+    return null;
+  }
+}
+
+function renderPlaylistUI() {
+  const container = document.getElementById("playlist-container");
+  if (stationPlaylist.length === 0) {
+    container.innerHTML = "No songs in queue.";
+    return;
+  }
+
+  let html = "";
+  stationPlaylist.forEach((song, index) => {
+    html += `
+      <div class="item-card">
+        <div class="item-info" title="${song.title}">${song.title}</div>
+        <button class="delete-btn" onclick="deleteSong(${index})" style="display:none;" id="del-btn-${index}">X</button>
+      </div>
+    `;
+  });
+  container.innerHTML = html;
+  updateAdminUI();
+}
+
+function toggleAdmin() {
+  const panel = document.getElementById("admin-panel");
+  if (panel.style.display === "block") {
+    panel.style.display = "none";
+    document.querySelectorAll(".delete-btn").forEach(el => el.style.display = "none");
+  } else {
+    let pass = prompt("Enter Admin Password:");
+    if (pass === "admin123") {
+      panel.style.display = "block";
+      document.querySelectorAll(".delete-btn").forEach(el => el.style.display = "block");
+      alert("Admin Mode Unlocked!");
+    } else {
+      alert("Wrong Password!");
+    }
+  }
+}
+
+function updateAdminUI() {
+  const isAd = document.getElementById("admin-panel").style.display === "block";
+  document.querySelectorAll(".delete-btn").forEach(el => {
+    el.style.display = isAd ? "block" : "none";
+  });
+}
+
+async function deleteSong(index) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/playlist/${index}`, { method: "DELETE" });
+    const data = await res.json();
+    stationPlaylist = data.playlist || [];
+    stationStartTime = data.stationStartTime || Date.now();
+    renderPlaylistUI();
+    if (playing) evaluateAndSyncPlayback();
+  } catch(err) {
+    alert("Delete failed");
+  }
+}
+
+document.getElementById("search-btn").addEventListener("click", () => {
+  const query = document.getElementById("query-input").value.trim();
+  if (!query) return;
+
+  const resultsContainer = document.getElementById("search-results");
+  resultsContainer.innerHTML = "Searching...";
+
+  fetch(`${BACKEND_URL}/api/search?q=${encodeURIComponent(query)}`)
+    .then(res => res.json())
+    .then(jsonData => {
+      const songs = jsonData?.results || [];
+      if (songs.length === 0) {
+        resultsContainer.innerHTML = "No songs found.";
+        return;
+      }
+
+      let html = "";
+      songs.slice(0, 5).forEach((s) => {
+        const songObj = encodeURIComponent(JSON.stringify(s));
+        html += `
+          <div class="item-card">
+            <div class="item-info" title="${s.title}">${s.title}</div>
+            <button onclick="addSong('${songObj}')">Add Global</button>
+          </div>
+        `;
+      });
+      resultsContainer.innerHTML = html;
+    })
+    .catch(err => {
+      resultsContainer.innerHTML = "API Error.";
+    });
+});
+
+window.addSong = async function(encodedObj) {
+  const songData = JSON.parse(decodeURIComponent(encodedObj));
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/playlist`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(songData)
+    });
+    const data = await res.json();
+    stationPlaylist = data.playlist || [];
+    stationStartTime = data.stationStartTime || Date.now();
+    renderPlaylistUI();
+    if (playing) evaluateAndSyncPlayback();
+    document.getElementById("info").innerHTML = `Added: ${songData.title}`;
+    setTimeout(() => { document.getElementById("info").innerHTML = "🔴 LIVE 24/7"; }, 3000);
+  } catch(err) {
+    alert("Failed to add song");
+  }
+};
+
+// --- PURE MATHEMATICAL CLIENT-SIDE SYNC ENGINE ---
+function evaluateAndSyncPlayback() {
+  if (stationPlaylist.length === 0) return;
+
+  const validPlaylist = stationPlaylist.map(s => ({ ...s, duration: Number(s.duration) || 180 }));
+  const totalDurationMs = validPlaylist.reduce((acc, s) => acc + (s.duration * 1000), 0);
+  if (totalDurationMs <= 0) return;
+
+  // Calculate elapsed time locally using device clock & station reference base
+  const elapsedMs = Math.max(0, Date.now() - stationStartTime);
+  const timeInLoopMs = elapsedMs % totalDurationMs;
+
+  let accumulatedMs = 0;
+  let targetIndex = 0;
+  let seekTimeSec = 0;
+
+  for (let i = 0; i < validPlaylist.length; i++) {
+    const songDurMs = validPlaylist[i].duration * 1000;
+    if (timeInLoopMs < accumulatedMs + songDurMs) {
+      targetIndex = i;
+      seekTimeSec = (timeInLoopMs - accumulatedMs) / 1000;
+      break;
+    }
+    accumulatedMs += songDurMs;
+  }
+
+  const activeSong = validPlaylist[targetIndex];
+  if (activeSong.image) bgImage.src = activeSong.image;
+
+  document.getElementById("info").innerHTML = `🔴 LIVE: ${activeSong.title}`;
+
+  // Update audio source only if song changed
+  if (!audioEl.src.includes(activeSong.url)) {
+    audioEl.src = activeSong.url;
+    audioEl.currentTime = seekTimeSec;
+    audioEl.play().catch(() => {});
+  } else {
+    // Correct minor time drifts locally (> 1 second mismatch)
+    const drift = Math.abs(audioEl.currentTime - seekTimeSec);
+    if (drift > 1.0) {
+      audioEl.currentTime = seekTimeSec;
+    }
+  }
+}
+
+async function startListening() {
+  initAudioContext();
+  await fetchStationState();
+
+  if (stationPlaylist.length === 0) {
+    alert("Playlist is empty! Ask admin to add songs.");
+    return;
+  }
+
+  evaluateAndSyncPlayback();
+
+  audioEl.play().then(() => {
+    if (!playing) {
+      dotEmitter = setInterval(emitDot, 50);
+      lineEmitter = setInterval(emitLine, 100);
+      
+      // Local timer loop checking sync status every 3 seconds (0 server requests)
+      syncInterval = setInterval(evaluateAndSyncPlayback, 3000);
+      
+      playing = true;
+      render();
+      document.getElementById("live-btn").style.display = "none";
+    }
+  }).catch(err => {
+    document.getElementById("info").innerHTML = "Tap to enable audio playback.";
+  });
+}
+
+// Fallback auto-progression loop locally
+audioEl.addEventListener('ended', () => {
+  evaluateAndSyncPlayback();
+});
+
+// Initial load check
+fetchStationState();
+
+// --- Visualizer Code ---
+function emitDot(){ if (dots.length > 80) return; dots.push({ xp: w/2, yp: h/2, xv: Math.random()*0.4-0.2, yv: Math.random()*0.4-0.2, rad: Math.random()*(10-2)+2, hue: Math.random()*50-25 }); }
+function emitLine(){ if (lines.length > 30) return; lines.push({ xp: w/2, yp: h/2, xv: Math.random()*0.4-0.2, yv: Math.random()*0.4-0.2, hue: Math.random()*50-25 }); }
+function clear(){ ctx.beginPath(); var grd = ctx.createLinearGradient(w/2, 0, w/2, h); grd.addColorStop(0, "hsl("+(config.hueStart + npt * config.colorSpeed)+", 35%, 10%"); grd.addColorStop(1, "hsl("+(config.hueStart + npt * config.colorSpeed)+", 75%, 5%"); ctx.fillStyle = grd; ctx.fillRect(0, 0, w, h); ctx.closePath(); }
+function drawDots(){ var avg = averageFrequency(); for(let i = 0; i < dots.length; i++){ ctx.beginPath(); var grd = ctx.createRadialGradient(dots[i].xp + dots[i].rad, dots[i].yp + dots[i].rad, 0, dots[i].xp + dots[i].rad, dots[i].yp + dots[i].rad, dots[i].rad); grd.addColorStop(0, "hsla("+(config.hueStart + npt * config.colorSpeed + dots[i].hue)+", 50%, 50%, "+(avg / 400)+"%)"); grd.addColorStop(1, "hsla("+(config.hueStart + npt * config.colorSpeed + dots[i].hue)+", 50%, 50%, 0%)"); ctx.fillStyle = grd; ctx.fillRect(dots[i].xp, dots[i].yp, dots[i].rad*2, dots[i].rad*2); ctx.closePath(); if(dots[i].xp > w || dots[i].xp < 0 || dots[i].yp > w || dots[i].yp < 0){ dots[i] = dots[dots.length-1]; dots.pop(); } else { dots[i].xp += dots[i].xv * Math.pow(avg/1000, 1.5); dots[i].yp += dots[i].yv * Math.pow(avg/1000, 1.5); } } }
+function drawLines() { var avg = averageFrequency(); var maxDist = 100; for (let i = 0; i < lines.length; i++) { for (let j = 0; j < lines.length; j++) { var proDist = 100 / maxDist; var opacity = 100 - dist(lines[j].xp, lines[j].yp, lines[i].xp, lines[i].yp) * proDist; if (dist(lines[j].xp, lines[j].yp, lines[i].xp, lines[i].yp) < maxDist) { ctx.beginPath(); ctx.lineWidth = 1; ctx.strokeStyle = "hsla(" + (config.hueStart + npt * config.colorSpeed) + ", 50%, 50%, " + (opacity - 50) + "%)"; ctx.moveTo(lines[i].xp, lines[i].yp); ctx.lineTo(lines[j].xp, lines[j].yp); ctx.stroke(); ctx.closePath(); } } if (lines[i].xp > w || lines[i].xp < 0 || lines[i].yp > w || lines[i].yp < 0) { lines[i] = lines[lines.length - 1]; lines.pop(); } else { lines[i].xp += lines[i].xv * avg/500; lines[i].yp += lines[i].yv * avg/500; } } }
+
+function getBassPulse() {
+  if (!frequencyData) return 0;
+  var bassSum = 0;
+  var totalBins = 8;
+  for (let i = 0; i < totalBins; i++) {
+    bassSum += frequencyData[i];
+  }
+  return bassSum / totalBins;
+}
+
+function drawSpectrum() { 
+  noiseSpeed = averageFrequency(); 
+  nrt += noiseSpeed/3000000; 
+  npt += noiseSpeed/1000000; 
+  var avg = 0; 
+  analyser.getByteFrequencyData(frequencyData); 
+  var noiseRotate = noise.perlin2(10, nrt); 
+  var points = Math.round(frequencyDataLen-frequencyDataLen/3); 
+  
+  var bassPower = getBassPulse(); 
+  var dynamicZoom = config.minRadius + (bassPower * 0.16); 
+  if (dynamicZoom > config.maxRadius) dynamicZoom = config.maxRadius;
+
+  if (bgImage.complete) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, dynamicZoom, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(bgImage, (w / 2) - dynamicZoom, (h / 2) - dynamicZoom, dynamicZoom * 2, dynamicZoom * 2);
+    ctx.restore();
+  }
+
+  for (let i = 0; i < points; i++) { 
+    avg += frequencyData[i]; 
+    avg = avg / points; 
+    
+    var x1 = w / 2 + (dynamicZoom) * Math.cos(-Math.PI/2 + 2 * Math.PI * i / points + noiseRotate); 
+    var y1 = h / 2 + (dynamicZoom) * Math.sin(-Math.PI/2 + 2 * Math.PI * i / points + noiseRotate); 
+    var x2 = w / 2 + ((dynamicZoom) + avg * config.multiplier) * Math.cos(-Math.PI/2 + 2 * Math.PI * i / points + noiseRotate); 
+    var y2 = h / 2 + ((dynamicZoom) + avg * config.multiplier) * Math.sin(-Math.PI/2 + 2 * Math.PI * i / points + noiseRotate); 
+    var x3 = w / 2 + ((dynamicZoom) + Math.pow((avg * config.multiplier) * 0.09, 2)) * Math.cos(-Math.PI/2 + 2 * Math.PI * i / points + noiseRotate); 
+    var y3 = h / 2 + ((dynamicZoom) + Math.pow((avg * config.multiplier) * 0.09, 2)) * Math.sin(-Math.PI/2 + 2 * Math.PI * i / points + noiseRotate); 
+    var nd1 = noise.simplex2(y1/100, npt)*10; 
+    
+    ctx.beginPath(); 
+    ctx.lineCap = "round"; 
+    ctx.lineWidth = 1.5; 
+    ctx.strokeStyle = "hsla("+(config.hueStart + npt * config.colorSpeed)+", 50%, "+(20+(Math.pow(avg * 3, 2)))+"%, 100%)"; 
+    ctx.moveTo(x1+nd1, y1+nd1); 
+    ctx.lineTo(x2+nd1, y2+nd1); 
+    ctx.stroke(); 
+    ctx.closePath(); 
+    
+    ctx.beginPath(); 
+    ctx.lineCap = "round"; 
+    ctx.lineWidth = 3.5; 
+    ctx.strokeStyle = "hsla("+(config.hueStart + npt * config.colorSpeed)+", 50%, "+(30+(Math.pow(avg * 3, 2)))+"%, 100%)"; 
+    ctx.moveTo(x1+nd1, y1+nd1); 
+    ctx.lineTo(x3+nd1, y3+nd1); 
+    ctx.stroke(); 
+    ctx.closePath(); 
+  } 
+}
+
+function render() { if (!playing) return; clear(); drawDots(); drawSpectrum(); drawLines(); requestAnimationFrame(render); }
+function dist(x1, y1, x2, y2) { var a = x1 - x2; var b = y1 - y2; return Math.sqrt(a * a + b * b); }
+function averageFrequency() { var avg = 0; for (let i = 0; i < frequencyData.length; i++) { avg += frequencyData[i]; } return avg; }
+</script>
+
+</body>
+</html>
