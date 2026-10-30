@@ -1,5 +1,3 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-
 const DEVELOPER_NAME = "Vivek Masona";
 
 // Deno KV Database open karein
@@ -181,4 +179,4 @@ function calculatePlaybackState(state) {
   };
 }
 
-serve(handler);
+Deno.serve(handler);
