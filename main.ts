@@ -26,7 +26,6 @@ async function updateState(newState: { playlist: any[]; stationStartTime: number
   return newState;
 }
 
-// Playback calculation for synced live radio across all users
 async function calculatePlaybackState() {
   const state = await getState();
   const playlist = state.playlist || [];
@@ -138,7 +137,26 @@ async function handler(req: Request): Promise<Response> {
       return new Response(JSON.stringify({ success: true, ...playbackState }), { headers });
     }
 
-    // 4. Delete Song API
+    // 4. Force Play Specific Song Index (POST /api/play)
+    if (url.pathname === "/api/play" && method === "POST") {
+      const body = await req.json();
+      const index = Number(body.index);
+      
+      let state = await getState();
+      if (!isNaN(index) && index >= 0 && index < state.playlist.length) {
+        let pastDurationSumMs = 0;
+        for (let i = 0; i < index; i++) {
+          pastDurationSumMs += ((Number(state.playlist[i].duration) || 180) * 1000);
+        }
+        state.stationStartTime = Date.now() - pastDurationSumMs;
+        await updateState(state);
+      }
+
+      const playbackState = await calculatePlaybackState();
+      return new Response(JSON.stringify({ success: true, ...playbackState }), { headers });
+    }
+
+    // 5. Delete Song API
     if (url.pathname.startsWith("/api/playlist/") && method === "DELETE") {
       const parts = url.pathname.split("/");
       const index = parseInt(parts[parts.length - 1]);
@@ -149,7 +167,7 @@ async function handler(req: Request): Promise<Response> {
       if (!isNaN(index) && index >= 0 && index < playlist.length) {
         playlist.splice(index, 1);
         state.playlist = playlist;
-        state.stationStartTime = Date.now(); // Reset baseline for sync math
+        state.stationStartTime = Date.now();
         await updateState(state);
       }
 
