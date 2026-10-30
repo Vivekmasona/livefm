@@ -9,23 +9,20 @@ async function getKv() {
   return kvInstance;
 }
 
-// Database se state lena ya naya initialize karna
 async function getState() {
   const kv = await getKv();
-  const res = await kv.get(["station_state_v2"]);
-  
+  const res = await kv.get(["station_state_v3"]);
   if (!res.value || typeof res.value !== 'object' || !Array.isArray(res.value.playlist)) {
     const initialState = { playlist: [], stationStartTime: Date.now() };
-    await kv.set(["station_state_v2"], initialState);
+    await kv.set(["station_state_v3"], initialState);
     return initialState;
   }
   return res.value;
 }
 
-// Database mein state save karna
 async function updateState(newState) {
   const kv = await getKv();
-  await kv.set(["station_state_v2"], newState);
+  await kv.set(["station_state_v3"], newState);
   return newState;
 }
 
@@ -69,23 +66,25 @@ async function handler(req: Request): Promise<Response> {
       return new Response(JSON.stringify({ developer: DEVELOPER_NAME, results: cleanSongs }), { headers });
     }
 
-    // 2. Get Playlist / Playback State API
+    // 2. Get Playlist API
     if (url.pathname === "/api/playlist" && method === "GET") {
       const state = await getState();
       const playback = calculatePlaybackState(state);
       return new Response(JSON.stringify(playback), { headers });
     }
 
-    // 3. Add Song to Playlist API (POST)
+    // 3. Add Song API (POST)
     if (url.pathname === "/api/playlist" && method === "POST") {
       const newSong = await req.json();
+      console.log("Saving song:", newSong.title);
+
       if (!newSong.url || !newSong.title) {
-        return new Response(JSON.stringify({ error: "Invalid data" }), { status: 400, headers });
+        return new Response(JSON.stringify({ error: "Invalid song data" }), { status: 400, headers });
       }
 
       let state = await getState();
       
-      // Check duplicate by URL
+      // Check if song already exists
       const exists = state.playlist.some((s) => s.url === newSong.url);
       if (!exists) {
         newSong.duration = Number(newSong.duration) || 180;
@@ -141,11 +140,11 @@ async function handler(req: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: "Not Found" }), { status: 404, headers });
 
   } catch (err) {
+    console.error("Server Error:", err);
     return new Response(JSON.stringify({ error: err.message }), { status: 500, headers });
   }
 }
 
-// Playback time calculation logic
 function calculatePlaybackState(state) {
   const playlist = state.playlist || [];
   if (playlist.length === 0) {
@@ -188,3 +187,4 @@ function calculatePlaybackState(state) {
 }
 
 Deno.serve(handler);
+
