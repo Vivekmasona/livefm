@@ -9,25 +9,23 @@ async function getKv() {
   return kvInstance;
 }
 
-// State fetch karne ke liye safe function
+// Database se state lena ya naya initialize karna
 async function getState() {
   const kv = await getKv();
-  const res = await kv.get(["station", "state"]);
-  if (!res.value || typeof res.value !== 'object') {
+  const res = await kv.get(["station_state_v2"]);
+  
+  if (!res.value || typeof res.value !== 'object' || !Array.isArray(res.value.playlist)) {
     const initialState = { playlist: [], stationStartTime: Date.now() };
-    await kv.set(["station", "state"], initialState);
+    await kv.set(["station_state_v2"], initialState);
     return initialState;
-  }
-  if (!Array.isArray(res.value.playlist)) {
-    res.value.playlist = [];
   }
   return res.value;
 }
 
-// State update karne ke liye function
+// Database mein state save karna
 async function updateState(newState) {
   const kv = await getKv();
-  await kv.set(["station", "state"], newState);
+  await kv.set(["station_state_v2"], newState);
   return newState;
 }
 
@@ -35,7 +33,6 @@ async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const method = req.method;
 
-  // CORS headers
   const headers = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
@@ -79,7 +76,7 @@ async function handler(req: Request): Promise<Response> {
       return new Response(JSON.stringify(playback), { headers });
     }
 
-    // 3. Add Song to Playlist API (Live Update)
+    // 3. Add Song to Playlist API (POST)
     if (url.pathname === "/api/playlist" && method === "POST") {
       const newSong = await req.json();
       if (!newSong.url || !newSong.title) {
@@ -87,11 +84,10 @@ async function handler(req: Request): Promise<Response> {
       }
 
       let state = await getState();
-      if (!Array.isArray(state.playlist)) {
-        state.playlist = [];
-      }
-
-      if (!state.playlist.some((s) => s.url === newSong.url)) {
+      
+      // Check duplicate by URL
+      const exists = state.playlist.some((s) => s.url === newSong.url);
+      if (!exists) {
         newSong.duration = Number(newSong.duration) || 180;
         if (state.playlist.length === 0) {
           state.stationStartTime = Date.now();
@@ -192,4 +188,3 @@ function calculatePlaybackState(state) {
 }
 
 Deno.serve(handler);
-
