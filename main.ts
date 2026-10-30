@@ -1,10 +1,17 @@
 const DEVELOPER_NAME = "Vivek Masona";
 
-// Deno KV Database open karein
-const kv = await Deno.openKv();
+let kvInstance = null;
+
+async function getKv() {
+  if (!kvInstance) {
+    kvInstance = await Deno.openKv();
+  }
+  return kvInstance;
+}
 
 // State fetch karne ke liye function
 async function getState() {
+  const kv = await getKv();
   const res = await kv.get(["station", "state"]);
   if (!res.value) {
     const initialState = { playlist: [], stationStartTime: Date.now() };
@@ -16,6 +23,7 @@ async function getState() {
 
 // State update karne ke liye function
 async function updateState(newState) {
+  const kv = await getKv();
   await kv.set(["station", "state"], newState);
   return newState;
 }
@@ -180,3 +188,4 @@ function calculatePlaybackState(state) {
 }
 
 Deno.serve(handler);
+
