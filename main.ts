@@ -9,14 +9,17 @@ async function getKv() {
   return kvInstance;
 }
 
-// State fetch karne ke liye function
+// State fetch karne ke liye safe function
 async function getState() {
   const kv = await getKv();
   const res = await kv.get(["station", "state"]);
-  if (!res.value) {
+  if (!res.value || typeof res.value !== 'object') {
     const initialState = { playlist: [], stationStartTime: Date.now() };
     await kv.set(["station", "state"], initialState);
     return initialState;
+  }
+  if (!Array.isArray(res.value.playlist)) {
+    res.value.playlist = [];
   }
   return res.value;
 }
@@ -84,15 +87,16 @@ async function handler(req: Request): Promise<Response> {
       }
 
       let state = await getState();
-      let playlist = state.playlist || [];
+      if (!Array.isArray(state.playlist)) {
+        state.playlist = [];
+      }
 
-      if (!playlist.some((s) => s.url === newSong.url)) {
+      if (!state.playlist.some((s) => s.url === newSong.url)) {
         newSong.duration = Number(newSong.duration) || 180;
-        if (playlist.length === 0) {
+        if (state.playlist.length === 0) {
           state.stationStartTime = Date.now();
         }
-        playlist.push(newSong);
-        state.playlist = playlist;
+        state.playlist.push(newSong);
         await updateState(state);
       }
 
