@@ -1,4 +1,4 @@
-const DEVELOPER_NAME = "VivekMasona";
+const DEVELOPER_NAME = "Vivek Masona";
 
 let kvInstance: Deno.Kv | null = null;
 
